@@ -58,6 +58,10 @@ int historyCount = 0;
 bool sdCardAvailable = false;
 String currentLogFile = "";
 
+// Sensor availability flags
+bool bmpAvailable = false;
+bool ahtAvailable = false;
+
 // Timing
 unsigned long lastReadTime = 0;
 unsigned long lastLogTime = 0;
@@ -166,9 +170,15 @@ void initSensors() {
     Serial.println("NOT FOUND");
   }
   
-  // BMP280 Pressure/Temperature Sensor
+  // BMP280 Pressure/Temperature Sensor (try 0x76 then 0x77)
   Serial.print("  BMP280 (Pressure)... ");
   if (bmp.begin(0x76)) {
+    bmpAvailable = true;
+  } else if (bmp.begin(0x77)) {
+    bmpAvailable = true;
+    Serial.print("(addr 0x77) ");
+  }
+  if (bmpAvailable) {
     bmp.setSampling(Adafruit_BMP280::MODE_NORMAL,
                     Adafruit_BMP280::SAMPLING_X2,
                     Adafruit_BMP280::SAMPLING_X16,
@@ -176,12 +186,13 @@ void initSensors() {
                     Adafruit_BMP280::STANDBY_MS_500);
     Serial.println("OK");
   } else {
-    Serial.println("NOT FOUND");
+    Serial.println("NOT FOUND - check wiring and I2C address");
   }
-  
+
   // AHT20 Temperature/Humidity Sensor
   Serial.print("  AHT20 (Humidity)... ");
   if (aht.begin()) {
+    ahtAvailable = true;
     Serial.println("OK");
   } else {
     Serial.println("NOT FOUND");
@@ -222,17 +233,22 @@ void readSensors() {
   }
   
   // Read BMP280 Pressure and Temperature
-  currentData.pressure = bmp.readPressure() / 100.0; // Convert to hPa
-  float bmp_temp = bmp.readTemperature();
-  
+  float bmp_temp = NAN;
+  if (bmpAvailable) {
+    currentData.pressure = bmp.readPressure() / 100.0; // Convert to hPa
+    bmp_temp = bmp.readTemperature();
+  }
+
   // Read AHT20 Temperature and Humidity
-  sensors_event_t humidity_event, temp_event;
-  aht.getEvent(&humidity_event, &temp_event);
-  currentData.humidity = humidity_event.relative_humidity;
-  currentData.air_temp = temp_event.temperature;
-  
-  // If AHT20 failed, use BMP280 temperature
-  if (isnan(currentData.air_temp)) {
+  if (ahtAvailable) {
+    sensors_event_t humidity_event, temp_event;
+    aht.getEvent(&humidity_event, &temp_event);
+    currentData.humidity = humidity_event.relative_humidity;
+    currentData.air_temp = temp_event.temperature;
+  }
+
+  // If AHT20 failed or unavailable, fall back to BMP280 temperature
+  if (isnan(currentData.air_temp) && !isnan(bmp_temp)) {
     currentData.air_temp = bmp_temp;
   }
   
